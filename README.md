@@ -1,4 +1,6 @@
-# Agent Island
+<p align="center"><img src="docs/icon.png" width="128" alt="Agent Island icon"></p>
+
+<h1 align="center">Agent Island</h1>
 
 **A notch-style island on the edge of your Mac screen for talking to your Claude Code agents.** Type or speak a request.
 The right agent picks it up and fans the work out to subagents. Its questions and permission prompts come back as
@@ -38,9 +40,11 @@ one-key cards, so you never switch windows or babysit a terminal.
 ```bash
 git clone https://github.com/exTypen/agent-island
 cd agent-island
-./build.sh run                                  # builds build/Agent Island.app and launches it
-cp -R "build/Agent Island.app" /Applications/   # optional
+./build.sh install      # builds, installs to /Applications and launches it
 ```
+
+Open it later from Spotlight or Launchpad like any app. While hacking on it, `./build.sh run` builds and launches from
+`build/` without installing.
 
 The island appears on the right edge of the screen; drag it to any other edge. There is no Dock icon. Right-click the
 island for the menu: edit agents, reload, enable the ⌥⌥ shortcut, quit.
@@ -53,7 +57,8 @@ macOS asks for permissions the first time each feature is used:
 | Accessibility | the global double-tap ⌥ shortcut (optional) |
 
 `build.sh` signs with your first *Apple Development* identity if you have one, so these grants survive rebuilds. With
-ad-hoc signing (no identity) macOS asks again after each rebuild.
+ad-hoc signing (no identity) macOS asks again after each rebuild. With Xcode 26 it compiles the Icon Composer icon
+(`AppIcon.icon`) so macOS 26 renders it natively; older toolchains fall back to `AppIcon.icns`.
 
 ## Your agents
 

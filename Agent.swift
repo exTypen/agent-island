@@ -45,9 +45,24 @@ struct RouterConfig: Decodable, Equatable {
     var idleUnloadMinutes: Double?
 }
 
+struct WhisperConfig: Decodable, Equatable {
+    var url: String?            // default http://127.0.0.1:8010
+    var serve: String?          // command that starts stt/server.py
+    var language: String?       // "tr", "en"…; default: Whisper detects it
+    var idleUnloadMinutes: Double?
+}
+
+struct VoiceConfig: Decodable, Equatable {
+    /// Words dictation should get right: tools, products, names. Agent names and role terms are added automatically.
+    var vocabulary: [String]?
+    /// Local Whisper for the final transcript; without it Apple's recognizer alone is used.
+    var whisper: WhisperConfig?
+}
+
 struct Config: Decodable {
     var defaults: Defaults?
     var router: RouterConfig?
+    var voice: VoiceConfig?
     var agents: [AgentConfig]
 }
 

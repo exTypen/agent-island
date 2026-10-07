@@ -81,6 +81,26 @@ When the user wants an agent for a project ("set up an agent for my shop repo"):
 Editing works the same way: change the fields, validate, confirm. To remove an agent, delete its entry. Never edit
 `sessions.json`; to give an agent a fresh memory, tell the user to press ✎ in its tab.
 
+## Voice
+
+Dictation shows Apple's live text while the user talks. With local Whisper, that text is replaced by Whisper's transcript
+when they let go, which is much better at mixed languages and technical terms. Whisper loads when they start talking and
+unloads right after.
+
+If dictation gets a word wrong ("Tokyo" for "tokio"), add the word to `voice.vocabulary`. Agent names and the technical
+terms in roles are already included.
+
+```yaml
+voice:
+  vocabulary: [Rust, tokio, Kubernetes, Next.js]
+  whisper:
+    serve: cd ~/agent-island/stt && exec .venv/bin/python server.py --port 8010
+    language: en          # leave out to auto-detect
+```
+
+Setup needs Apple Silicon and `uv`, and is run in the agent-island repo's `stt/` folder:
+`uv venv && uv pip install -r requirements.txt`. Find where the repo is cloned before writing the `serve` path.
+
 ## Router
 
 Without a `router:` block, every Inbox message asks the user which agent to use. With it, a small local decision model

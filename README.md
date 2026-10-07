@@ -123,6 +123,32 @@ The dot on the closed island shows what's happening:
 
 <p align="center"><img src="docs/island.png" width="300" alt="The closed island at the screen edge with a green dot"></p>
 
+## Voice
+
+Hold Space (with the text field empty) or double-tap ⌥ and talk. Apple's recognizer shows the words live. If you set up
+local Whisper, its transcript replaces Apple's when you let go. Whisper is much better when you mix languages and say
+technical terms; *"Rust'ta tokio ne işe yarıyor"* stops coming out as *"Rasta Tokyo"*.
+
+```bash
+cd stt && uv venv && uv pip install -r requirements.txt   # once; the model (~1.6 GB) downloads on first use
+```
+
+```yaml
+voice:
+  vocabulary: [Rust, tokio, Kubernetes, Next.js, useEffect]   # words to get right; agent names and role terms are added
+  whisper:
+    serve: cd ~/agent-island/stt && exec .venv/bin/python server.py --port 8010
+    language: en                                              # or tr, de…; leave out to auto-detect
+```
+
+- **Engine:** [Whisper large-v3-turbo](https://huggingface.co/mlx-community/whisper-large-v3-turbo-asr-fp16) on MLX,
+  through [mlx-audio](https://github.com/Blaizzy/mlx-audio).
+- **Startup:** it starts when you start talking and is ready in about a second, before you've finished. It unloads right
+  after the transcript, so it takes no memory while idle (~2.5 GB while in use).
+- **Speed:** a sentence comes back in ~0.2–0.3 s after you let go.
+- **Vocabulary:** the list is passed to both recognizers, as Whisper's prompt and as Apple's contextual strings.
+  Whisper's prompt holds about 60 terms.
+
 ## The router
 
 Without a router, every message typed in the Inbox asks you which agent should take it, unless it starts with `@name`.
@@ -163,8 +189,9 @@ Any server that speaks the same `POST /v1/systemone` API can be used through `ro
 
 ## Privacy
 
-Agents talk to Anthropic through your own Claude Code login, exactly as `claude` does in a terminal. Routing runs
-locally. Dictation uses Apple's Speech framework, which may send audio to Apple for recognition.
+Agents talk to Anthropic through your own Claude Code login, exactly as `claude` does in a terminal. Routing and
+Whisper run locally. The live dictation text comes from Apple's Speech framework, which may send audio to Apple for
+recognition.
 
 ## Credits
 

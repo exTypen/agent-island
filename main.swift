@@ -43,6 +43,10 @@ final class Model: ObservableObject {
     @Published var selectedID: String?
     @Published var configError: String?
     @Published var level: Float = 0 // mic input level 0…1 while recording
+    @Published var transcribing = false // Whisper is turning the recording into the final text
+    var whisper: Whisper?
+    private var vocabulary: [String] = []
+    private var recordPrefix = ""
     // Inbox
     @Published var reports: [Report] = []
     @Published var routeAsk: RouteAsk?
@@ -111,7 +115,12 @@ final class Model: ObservableObject {
             agents = next
             reports.removeAll { r in !next.contains { $0.id == r.agentID } }
         }
-        if !recording { speech = Speech(locale: defaults.voiceLocale) }
+        vocabulary = voiceVocabulary(cfg)
+        if !recording { speech = Speech(locale: defaults.voiceLocale, hints: vocabulary) }
+        if cfg.voice?.whisper != whisper?.cfg, !recording, !transcribing {
+            whisper?.stop()
+            whisper = cfg.voice?.whisper.map(Whisper.init)
+        }
         if cfg.router != router?.cfg {
             router?.stop()
             router = cfg.router.map(Router.init)
@@ -240,6 +249,7 @@ final class Model: ObservableObject {
     func close() {
         guard expanded, let p = panel else { return }
         router?.panelClosed()
+        whisper?.service.panelClosed()
         if recording { toggleMic() }
         withAnimation(.spring(duration: 0.42, bounce: 0.16)) {
             expanded = false
@@ -305,7 +315,8 @@ final class Model: ObservableObject {
     }
 
     func send() {
-        if recording { toggleMic() }
+        if recording { return toggleMic(then: { [weak self] in self?.send() }) }
+        guard !transcribing else { return }
         let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         input = ""
@@ -314,16 +325,37 @@ final class Model: ObservableObject {
 
     // MARK: voice
 
-    func toggleMic() {
+    /// Starts or stops dictation. While talking, Apple's recognizer fills the field live; on stop, local Whisper (when
+    /// configured) replaces that with its own transcript. `then` runs once the final text is in the field.
+    func toggleMic(then: (() -> Void)? = nil, discard: Bool = false) {
         if recording {
-            speech.stop()
+            let audio = speech.stop()
             withAnimation(.easeOut(duration: 0.2)) { recording = false; level = 0 }
-        } else {
-            let prefix = input.isEmpty ? "" : input + " "
-            withAnimation(.spring(duration: 0.3, bounce: 0.3)) { recording = true }
-            speech.start(level: { [weak self] l in self?.level = l }) { [weak self] text, error in
+            guard let whisper, !discard, audio.count > 16000 / 2 else {
+                whisper?.cancel()
+                // Apple's recognizer delivers its final words just after endAudio.
+                if let then { DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: then) }
+                return
+            }
+            withAnimation(.easeOut(duration: 0.2)) { transcribing = true }
+            let prefix = recordPrefix
+            whisper.transcribe(audio, hotwords: vocabulary) { [weak self] text in
                 guard let self else { return }
+                withAnimation(.easeOut(duration: 0.2)) { self.transcribing = false }
+                if let text, !text.isEmpty { self.input = prefix + text } // else keep Apple's text
+                then?()
+            }
+        } else {
+            recordPrefix = input.isEmpty ? "" : input + " "
+            let prefix = recordPrefix
+            withAnimation(.spring(duration: 0.3, bounce: 0.3)) { recording = true }
+            whisper?.warm() // loads while the user talks
+            speech.start(level: { [weak self] l in self?.level = l }) { [weak self] text, error in
+                // Apple sends its last words just after stop; with Whisper they'd only race its transcript.
+                guard let self, self.recording || self.whisper == nil else { return }
                 if let error {
+                    self.speech.stop()
+                    self.whisper?.cancel()
                     self.recording = false
                     self.selected?.messages.append(Message(role: .system, text: "🎙 \(error)"))
                 } else {
@@ -347,86 +379,13 @@ final class Model: ObservableObject {
             pttHeld = false
             pttPoll?.invalidate()
             guard recording else { return }
-            toggleMic()
-            if Date().timeIntervalSince(pttStarted) < 0.3 { input = ""; return } // a tap, not a hold
-            // The recognizer delivers its final transcript just after endAudio.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { self.send() }
-        }
-    }
-}
-
-// MARK: - Speech
-
-final class Speech {
-    private let engine = AVAudioEngine()
-    private var request: SFSpeechAudioBufferRecognitionRequest?
-    private var task: SFSpeechRecognitionTask?
-    private var active = false // stop() may land before authorization returns
-    private var running = false // engine started and tap installed
-    private let recognizer: SFSpeechRecognizer?
-
-    init(locale: String? = nil) {
-        recognizer = SFSpeechRecognizer(locale: locale.map(Locale.init(identifier:)) ?? .current) ?? SFSpeechRecognizer()
-    }
-
-    /// Calls back on main with partial transcripts, or an error string.
-    func start(level: @escaping (Float) -> Void, _ cb: @escaping (String, String?) -> Void) {
-        active = true
-        // Ask for both permissions up front: touching engine.inputNode without mic access blocks the main thread.
-        SFSpeechRecognizer.requestAuthorization { status in
-            AVCaptureDevice.requestAccess(for: .audio) { mic in
-                DispatchQueue.main.async {
-                    guard self.active else { return }
-                    guard status == .authorized else {
-                        return cb("", "Speech recognition not authorized (System Settings → Privacy → Speech Recognition)")
-                    }
-                    guard mic else { return cb("", "Microphone not authorized (System Settings → Privacy → Microphone)") }
-                    do { try self.begin(level, cb) } catch { cb("", error.localizedDescription) }
-                }
+            if Date().timeIntervalSince(pttStarted) < 0.3 { // a tap, not a hold
+                toggleMic(discard: true)
+                input = ""
+                return
             }
+            toggleMic(then: { [weak self] in self?.send() })
         }
-    }
-
-    private func begin(_ level: @escaping (Float) -> Void, _ cb: @escaping (String, String?) -> Void) throws {
-        let req = SFSpeechAudioBufferRecognitionRequest()
-        req.shouldReportPartialResults = true
-        request = req
-        let node = engine.inputNode
-        let format = node.outputFormat(forBus: 0)
-        // No mic access (or no input device) reports a 0 Hz format, and installTap would raise and abort the app.
-        guard format.sampleRate > 0, format.channelCount > 0 else {
-            throw NSError(domain: "mic", code: 1, userInfo: [NSLocalizedDescriptionKey:
-                "Microphone unavailable — allow Agent Island in System Settings → Privacy → Microphone"])
-        }
-        node.removeTap(onBus: 0)
-        node.installTap(onBus: 0, bufferSize: 1024, format: format) { b, _ in
-            req.append(b)
-            guard let ch = b.floatChannelData?[0], b.frameLength > 0 else { return }
-            var sum: Float = 0
-            for i in 0..<Int(b.frameLength) { sum += ch[i] * ch[i] }
-            let db = 20 * log10(max(sqrt(sum / Float(b.frameLength)), 1e-6)) // ≈ -60 silence … 0 loud
-            let l = min(max((db + 55) / 45, 0), 1)
-            DispatchQueue.main.async { level(l) }
-        }
-        engine.prepare()
-        try engine.start()
-        running = true
-        task = recognizer?.recognitionTask(with: req) { result, _ in
-            if let result { DispatchQueue.main.async { cb(result.bestTranscription.formattedString, nil) } }
-        }
-    }
-
-    func stop() {
-        guard active else { return }
-        active = false
-        if running {
-            running = false
-            engine.stop()
-            engine.inputNode.removeTap(onBus: 0)
-        }
-        request?.endAudio()
-        task = nil
-        request = nil
     }
 }
 
@@ -604,6 +563,13 @@ struct ExpandedView: View {
                     .focused($focused)
                     .onSubmit { m.send() }
                     .onExitCommand { m.close() }
+                    // Live text is provisional while Whisper is going to replace it.
+                    .opacity(m.whisper != nil && (m.recording || m.transcribing) ? 0.55 : 1)
+                    .animation(.easeOut(duration: 0.2), value: m.transcribing)
+                if m.transcribing {
+                    ProgressView().controlSize(.small).help("Transcribing with Whisper")
+                        .transition(.scale.combined(with: .opacity))
+                }
                 if m.recording { LevelBars(level: m.level).transition(.scale.combined(with: .opacity)) }
                 Button { m.toggleMic() } label: {
                     Image(systemName: m.recording ? "stop.circle.fill" : "mic.fill")
@@ -865,6 +831,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main
         ) { _ in
             m.router?.stop()
+            m.whisper?.stop()
             m.agents.forEach { $0.stop() }
         }
 

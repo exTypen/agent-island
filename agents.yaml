@@ -26,6 +26,17 @@ defaults:
 #   min_margin: 0.2         # lead over the runner-up; below it you pick
 #   idle_unload_minutes: 0  # 0 = load when the panel opens, unload right after each decision; -1 = keep loaded
 
+# Dictation: hold Space (or double-tap ⌥) and talk. Apple's recognizer shows the text live; with local Whisper it is
+# replaced by Whisper's transcript when you let go — much better at mixed-language speech and technical terms.
+# Whisper loads when you start talking (~1 s, while you speak) and unloads right after. One-time setup (Apple Silicon):
+#   cd stt && uv venv && uv pip install -r requirements.txt      (the model, ~1.6 GB, downloads on first use)
+# voice:
+#   vocabulary: [Rust, tokio, Kubernetes, Next.js, useEffect]   # words it should get right; agent names and
+#                                                               # role terms are added automatically
+#   whisper:
+#     serve: cd ~/agent-island/stt && exec .venv/bin/python server.py --port 8010   # adjust to where you cloned it
+#     language: en          # or tr, de…; leave out to auto-detect
+
 agents:
   - id: claude
     name: Claude

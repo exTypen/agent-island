@@ -1,0 +1,49 @@
+# Agent Island — your agents.
+#
+# Each agent is one long-lived Claude Code session (your subscription, via the `claude` CLI) started in `cwd`, so it
+# picks up that folder's CLAUDE.md, .claude/ settings, MCP servers and memory. You only talk to the agent; it fans work
+# out to its own background subagents and reports back.
+#
+# Live copy: ~/.config/agent-island/agents.yaml — right-click the island → "Reload agents" after editing.
+
+defaults:
+  permission_mode: auto   # acceptEdits | auto | bypassPermissions | dontAsk | plan — prompts it can't settle go to your Inbox
+  compact_at: 120000      # context tokens; the island sends /compact between turns past this
+  # model: opus           # passed as --model
+  # user: Alex            # how agents refer to you (default "the user")
+  # language: English     # reply language / style for all agents (default: whatever you write in)
+  # voice_locale: en-US   # dictation language (default: the system's)
+
+# Router: in the Inbox, a message without an @name goes to the agent a local decision model picks; when it isn't sure,
+# you pick (1/2/3). Without a router, every Inbox message asks you which agent to use.
+# Uses kevlite (Kev-0.8B without torch: ~0.5 s cold start, ~1.9 GB only while loaded). One-time setup:
+#   git clone https://github.com/exTypen/kev ~/kev && cd ~/kev && uv sync --extra serve && uv run python lite/export.py
+# then uncomment:
+# router:
+#   url: http://127.0.0.1:8009/v1/systemone
+#   serve: cd ~/kev && exec .venv/bin/python lite/server.py --port 8009
+#   min_confidence: 0.5
+#   min_margin: 0.2         # lead over the runner-up; below it you pick
+#   idle_unload_minutes: 0  # 0 = load when the panel opens, unload right after each decision; -1 = keep loaded
+
+agents:
+  - id: claude
+    name: Claude
+    role: General assistant for anything no other agent owns — coding questions, research, personal tasks.
+    cwd: "~"              # quote it: a bare ~ is null in YAML
+    color: "#D97757"
+    manager: true         # knows how the island works: ask it to create, change or remove agents for you
+
+  # One agent per project — or just ask Claude: "set up an agent for ~/code/shop".
+  # The router reads `role`, so name concrete things the agent owns.
+  # - id: shop
+  #   name: Shop
+  #   role: >-
+  #     Owns the online store: storefront theme, product catalog, stock and price sync, orders, the store's workers.
+  #   cwd: ~/code/shop
+  #   color: "#3B82F6"
+  #   add_dirs: [~/notes/shop]          # extra folders the agent may read
+  #   instructions: |                    # appended to its system prompt
+  #     The repo is a monorepo; cd into apps/<name> before running wrangler.
+  #   # permission_mode: acceptEdits
+  #   # compact_at: 80000

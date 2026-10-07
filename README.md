@@ -108,7 +108,7 @@ agents:
 | Inbox / agents | ⌘1 · ⌘2, ⌘3, … |
 | Answer a card | 1–9 · ↵ allows or opens · E clears · J/K moves · Tab switches between cards and the text field |
 | Address an agent | start with `@shop` or `shop,` |
-| Talk | hold Space (empty field) · double-tap ⌥ from anywhere · 🎙 to dictate without sending |
+| Talk | hold Space (empty field), release to send · double-tap ⌥ from anywhere: hands-free, sends when you pause · 🎙 hands-free dictation into the field |
 | Stop a turn | ■ (its background subagents keep running) |
 | Compact / fresh session | click the context size (e.g. `42k`) · ✎ |
 
@@ -125,7 +125,7 @@ The dot on the closed island shows what's happening:
 
 ## Voice
 
-Hold Space (with the text field empty) or double-tap ⌥ and talk. Apple's recognizer shows the words live. If you set up
+Hold Space (with the text field empty) and talk, or double-tap ⌥ and just talk: hands-free dictation ends by itself after about a second of silence, judged against the room's own noise level. Apple's recognizer shows the words live. If you set up
 local Whisper, its transcript replaces Apple's when you let go. Whisper is much better when you mix languages and say
 technical terms; *"Rust'ta tokio ne işe yarıyor"* stops coming out as *"Rasta Tokyo"*.
 

@@ -183,3 +183,35 @@ func voiceVocabulary(_ cfg: Config) -> [String] {
     var seen = Set<String>()
     return Array(out.filter { seen.insert($0.lowercased()).inserted }.prefix(60))
 }
+
+// MARK: - End of speech
+
+/// Decides when the user has stopped talking, from the mic level (0…1) the recorder reports ~50× a second.
+/// The noise floor is learned on the fly: it drops to the quietest level heard and creeps back up slowly, so a fan or a
+/// café doesn't count as speech and a quiet room needs no magic threshold. Whether anything was said is judged against
+/// the current floor over the recent past, so speech that starts the instant recording does still counts once the
+/// first pause reveals the real floor.
+struct EndOfSpeech {
+    enum Verdict { case listening, done, nothingSaid }
+
+    var pause: Double = 1.1 // seconds of silence after speech that end the recording
+    var giveUp: Double = 8 // seconds without any speech before the recording is dropped
+    private var floor: Float?
+    private var recent: [(level: Float, dt: Double)] = [] // last ~30 s
+    private var elapsed = 0.0
+
+    mutating func feed(_ level: Float, dt: Double) -> Verdict {
+        elapsed += dt
+        let f = floor.map { level < $0 ? level : $0 + (level - $0) * 0.002 } ?? level
+        floor = f
+        recent.append((level, dt))
+        if recent.count > 1500 { recent.removeFirst(recent.count - 1500) }
+        // Both judged against today's floor: until the first pause reveals it, speech can look like the floor.
+        let silence = recent.reversed().prefix { $0.level < f + 0.10 }.reduce(0.0) { $0 + $1.dt }
+        // a click or a cough isn't speech: it takes a quarter second above the floor
+        let spoken = recent.reduce(0.0) { $0 + ($1.level > f + 0.18 ? $1.dt : 0) }
+        if spoken > 0.25, silence >= pause { return .done }
+        if spoken <= 0.25, elapsed >= giveUp { return .nothingSaid }
+        return .listening
+    }
+}

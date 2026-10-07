@@ -47,6 +47,11 @@ final class Model: ObservableObject {
     var whisper: Whisper?
     private var vocabulary: [String] = []
     private var recordPrefix = ""
+    /// Hands-free dictation (⌥⌥, the mic button) ends by itself when the user pauses; push-to-talk ends on release.
+    enum AutoStop { case send, keep }
+    private var autoStop: AutoStop?
+    private var endOfSpeech = EndOfSpeech()
+    private var lastLevelAt = Date()
     // Inbox
     @Published var reports: [Report] = []
     @Published var routeAsk: RouteAsk?
@@ -327,8 +332,9 @@ final class Model: ObservableObject {
 
     /// Starts or stops dictation. While talking, Apple's recognizer fills the field live; on stop, local Whisper (when
     /// configured) replaces that with its own transcript. `then` runs once the final text is in the field.
-    func toggleMic(then: (() -> Void)? = nil, discard: Bool = false) {
+    func toggleMic(then: (() -> Void)? = nil, discard: Bool = false, autoStop: AutoStop? = nil) {
         if recording {
+            self.autoStop = nil
             let audio = speech.stop()
             withAnimation(.easeOut(duration: 0.2)) { recording = false; level = 0 }
             guard let whisper, !discard, audio.count > 16000 / 2 else {
@@ -349,8 +355,11 @@ final class Model: ObservableObject {
             recordPrefix = input.isEmpty ? "" : input + " "
             let prefix = recordPrefix
             withAnimation(.spring(duration: 0.3, bounce: 0.3)) { recording = true }
+            self.autoStop = autoStop
+            endOfSpeech = EndOfSpeech()
+            lastLevelAt = Date()
             whisper?.warm() // loads while the user talks
-            speech.start(level: { [weak self] l in self?.level = l }) { [weak self] text, error in
+            speech.start(level: { [weak self] l in self?.heard(l) }) { [weak self] text, error in
                 // Apple sends its last words just after stop; with Whisper they'd only race its transcript.
                 guard let self, self.recording || self.whisper == nil else { return }
                 if let error {
@@ -362,6 +371,18 @@ final class Model: ObservableObject {
                     self.input = prefix + text
                 }
             }
+        }
+    }
+
+    private func heard(_ l: Float) {
+        level = l
+        let now = Date()
+        defer { lastLevelAt = now }
+        guard recording, let mode = autoStop, !pttHeld else { return }
+        switch endOfSpeech.feed(l, dt: now.timeIntervalSince(lastLevelAt)) {
+        case .listening: break
+        case .done: toggleMic(then: mode == .send ? { [weak self] in self?.send() } : nil)
+        case .nothingSaid: toggleMic(discard: true)
         }
     }
 
@@ -571,7 +592,7 @@ struct ExpandedView: View {
                         .transition(.scale.combined(with: .opacity))
                 }
                 if m.recording { LevelBars(level: m.level).transition(.scale.combined(with: .opacity)) }
-                Button { m.toggleMic() } label: {
+                Button { m.recording ? m.toggleMic() : m.toggleMic(autoStop: .keep) } label: {
                     Image(systemName: m.recording ? "stop.circle.fill" : "mic.fill")
                         .foregroundStyle(m.recording ? .red : .primary)
                         .contentTransition(.symbolEffect(.replace))
@@ -610,7 +631,7 @@ struct ExpandedView: View {
     private var wantsField: Bool { !(m.inInbox && !m.cards.isEmpty) }
 
     private var placeholder: String {
-        if m.recording { return "Listening…" }
+        if m.recording { return m.pttHeld ? "Listening…" : "Listening… pause to finish" }
         if let a = m.selected { return "Message \(a.cfg.name)" }
         if case .ask(let a, let p)? = m.currentCard { return p.isQuestion ? "Answer \(a.cfg.name)…" : "Tell \(a.cfg.name) what to do instead…" }
         return "Message — routed to the right agent"
@@ -792,7 +813,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if Date().timeIntervalSince(lastOption) < 0.35 {
                 lastOption = .distantPast
                 m.open()
-                if !m.recording { m.toggleMic() }
+                if !m.recording { m.toggleMic(autoStop: .send) } // hands-free: ends and sends when you pause
             } else {
                 lastOption = Date()
             }

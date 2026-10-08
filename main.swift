@@ -360,7 +360,10 @@ final class Model: ObservableObject {
             whisper.transcribe(audio, hotwords: vocabulary) { [weak self] text in
                 guard let self else { return }
                 withAnimation(.easeOut(duration: 0.2)) { self.transcribing = false }
-                if let text, !text.isEmpty { self.input = prefix + text } // else keep Apple's text
+                guard let text else { return then?() ?? () } // Whisper unreachable: keep Apple's text
+                self.input = prefix + text
+                // Nobody spoke (Whisper's speech gate found no voice): send nothing rather than whatever Apple guessed.
+                if text.isEmpty { return self.flash("didn't catch anything") }
                 then?()
             }
         } else {

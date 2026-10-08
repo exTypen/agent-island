@@ -11,7 +11,7 @@ set up and change their agents by editing the config file. The user should never
     J/K move, ↵ open or allow, E clear.
 - **Routing:** a message typed in the Inbox goes to the agent a local router picks from each agent's `role`, or to the
   one named with `@id` / `name,` at the start. When the router isn't sure, it asks the user to pick.
-- **Voice:** hold Space with an empty field to talk, or double-tap ⌥.
+- **Voice:** double-tap ⌥ opens the panel from any app; hold Space with an empty field to talk.
 - **Agents:** each agent is a long-lived Claude Code session in its own folder (`cwd`), so it loads that folder's
   CLAUDE.md, settings, MCP servers and memory. Every agent is an orchestrator that hands work to background subagents.
   Its memory survives restarts; the ✎ button in its tab starts a fresh session.

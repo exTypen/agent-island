@@ -131,6 +131,7 @@ struct Message: Identifiable {
     let id = UUID()
     let role: Role
     var text: String
+    var images: [Data] = []
 }
 
 /// Something the agent is blocked on: a tool permission or an AskUserQuestion.
@@ -215,6 +216,16 @@ final class Agent: ObservableObject, Identifiable {
                 let content = (e["message"] as? [String: Any])?["content"]
                 if e["type"] as? String == "user", let s = content as? String, !s.hasPrefix("<"), s != "/compact" {
                     out.append(Message(role: .user, text: s))
+                } else if e["type"] as? String == "user", let blocks = content as? [[String: Any]],
+                          blocks.contains(where: { $0["type"] as? String == "image" }) {
+                    // A message sent with images (tool results are arrays too, but never carry an image block).
+                    let text = blocks.compactMap { $0["type"] as? String == "text" ? $0["text"] as? String : nil }.joined(separator: "\n")
+                    let images = blocks.compactMap { b -> Data? in
+                        guard b["type"] as? String == "image", let src = b["source"] as? [String: Any],
+                              let d = src["data"] as? String else { return nil }
+                        return Data(base64Encoded: d)
+                    }
+                    out.append(Message(role: .user, text: text, images: images))
                 } else if e["type"] as? String == "assistant" {
                     let t = (content as? [[String: Any]] ?? []).compactMap { $0["type"] as? String == "text" ? $0["text"] as? String : nil }
                         .joined(separator: "\n\n")
@@ -247,10 +258,12 @@ final class Agent: ObservableObject, Identifiable {
 
     // MARK: input
 
-    func send(_ text: String) {
-        messages.append(Message(role: .user, text: text))
+    func send(_ text: String, images: [Attachment] = []) {
+        messages.append(Message(role: .user, text: text, images: images.map(\.data)))
         replyIndex = nil
-        write(["type": "user", "message": ["role": "user", "content": text]])
+        let content: Any = images.isEmpty ? text
+            : images.map(\.block) + (text.isEmpty ? [] : [["type": "text", "text": text]])
+        write(["type": "user", "message": ["role": "user", "content": content]])
     }
 
     func compact() {

@@ -1,6 +1,7 @@
 import AppKit
 import AVFoundation
 import Combine
+import UniformTypeIdentifiers
 import Speech
 import SwiftUI
 
@@ -44,12 +45,21 @@ final class Model: ObservableObject {
     @Published var configError: String?
     @Published var level: Float = 0 // mic input level 0…1 while recording
     @Published var transcribing = false // Whisper is turning the recording into the final text
+    @Published var attachments: [Attachment] = [] // images going out with the next message
+
+    /// ⌘V with images on the pasteboard attaches them; false = an ordinary text paste.
+    func pasteImages() -> Bool {
+        let found = Attachment.fromPasteboard()
+        guard !found.isEmpty else { return false }
+        withAnimation(.spring(duration: 0.3, bounce: 0.3)) { attachments += found }
+        inputFocused = true
+        return true
+    }
     var whisper: Whisper?
     private var vocabulary: [String] = []
     private var recordPrefix = ""
-    /// Hands-free dictation (⌥⌥, the mic button) ends by itself when the user pauses; push-to-talk ends on release.
-    enum AutoStop { case send, keep }
-    private var autoStop: AutoStop?
+    /// Hands-free dictation (the mic button) ends by itself when the user pauses; push-to-talk ends on release.
+    private var handsFree = false
     private var endOfSpeech = EndOfSpeech()
     private var lastLevelAt = Date()
     // Inbox
@@ -323,18 +333,20 @@ final class Model: ObservableObject {
         if recording { return toggleMic(then: { [weak self] in self?.send() }) }
         guard !transcribing else { return }
         let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        let images = attachments
+        guard !text.isEmpty || !images.isEmpty else { return }
         input = ""
-        if let a = selected { a.send(text) } else { submitInInbox(text) }
+        withAnimation(.easeOut(duration: 0.2)) { attachments = [] }
+        if let a = selected { a.send(text, images: images) } else { submitInInbox(text, images: images) }
     }
 
     // MARK: voice
 
     /// Starts or stops dictation. While talking, Apple's recognizer fills the field live; on stop, local Whisper (when
     /// configured) replaces that with its own transcript. `then` runs once the final text is in the field.
-    func toggleMic(then: (() -> Void)? = nil, discard: Bool = false, autoStop: AutoStop? = nil) {
+    func toggleMic(then: (() -> Void)? = nil, discard: Bool = false, handsFree: Bool = false) {
         if recording {
-            self.autoStop = nil
+            self.handsFree = false
             let audio = speech.stop()
             withAnimation(.easeOut(duration: 0.2)) { recording = false; level = 0 }
             guard let whisper, !discard, audio.count > 16000 / 2 else {
@@ -355,7 +367,7 @@ final class Model: ObservableObject {
             recordPrefix = input.isEmpty ? "" : input + " "
             let prefix = recordPrefix
             withAnimation(.spring(duration: 0.3, bounce: 0.3)) { recording = true }
-            self.autoStop = autoStop
+            self.handsFree = handsFree
             endOfSpeech = EndOfSpeech()
             lastLevelAt = Date()
             whisper?.warm() // loads while the user talks
@@ -378,10 +390,10 @@ final class Model: ObservableObject {
         level = l
         let now = Date()
         defer { lastLevelAt = now }
-        guard recording, let mode = autoStop, !pttHeld else { return }
+        guard recording, handsFree, !pttHeld else { return }
         switch endOfSpeech.feed(l, dt: now.timeIntervalSince(lastLevelAt)) {
         case .listening: break
-        case .done: toggleMic(then: mode == .send ? { [weak self] in self?.send() } : nil)
+        case .done: toggleMic() // the text stays in the field to edit and send
         case .nothingSaid: toggleMic(discard: true)
         }
     }
@@ -577,6 +589,18 @@ struct ExpandedView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
 
+            if !m.attachments.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(m.attachments) { a in
+                            AttachmentThumb(attachment: a) { withAnimation(.spring(duration: 0.25)) { m.attachments.removeAll { $0.id == a.id } } }
+                                .transition(.scale(scale: 0.6).combined(with: .opacity))
+                        }
+                    }
+                    .padding(.horizontal, 12).padding(.top, 8)
+                }
+            }
+
             HStack(spacing: 8) {
                 TextField(placeholder, text: $m.input, axis: .vertical)
                     .textFieldStyle(.plain)
@@ -592,7 +616,7 @@ struct ExpandedView: View {
                         .transition(.scale.combined(with: .opacity))
                 }
                 if m.recording { LevelBars(level: m.level).transition(.scale.combined(with: .opacity)) }
-                Button { m.recording ? m.toggleMic() : m.toggleMic(autoStop: .keep) } label: {
+                Button { m.recording ? m.toggleMic() : m.toggleMic(handsFree: true) } label: {
                     Image(systemName: m.recording ? "stop.circle.fill" : "mic.fill")
                         .foregroundStyle(m.recording ? .red : .primary)
                         .contentTransition(.symbolEffect(.replace))
@@ -605,7 +629,7 @@ struct ExpandedView: View {
                     Button { m.send() } label: {
                         Image(systemName: "arrow.up.circle.fill").foregroundStyle(m.selected?.color ?? .white)
                     }
-                    .buttonStyle(.plain).disabled(m.input.isEmpty)
+                    .buttonStyle(.plain).disabled(m.input.isEmpty && m.attachments.isEmpty)
                 }
             }
             .font(.system(size: 15))
@@ -625,6 +649,21 @@ struct ExpandedView: View {
             if new > old, m.inInbox, m.input.isEmpty, m.currentCard?.needsInput == true { m.inputFocused = false }
         }
         .onChange(of: m.inputFocused) { focused = m.inputFocused }
+        // Images dragged onto the panel (files from Finder, images from a browser) become attachments.
+        .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers in
+            let add: (Attachment?) -> Void = { a in
+                guard let a else { return }
+                DispatchQueue.main.async { withAnimation(.spring(duration: 0.3, bounce: 0.3)) { m.attachments.append(a) } }
+            }
+            for p in providers {
+                if p.canLoadObject(ofClass: URL.self) {
+                    _ = p.loadObject(ofClass: URL.self) { url, _ in add(url.flatMap(Attachment.init(url:))) }
+                } else if p.canLoadObject(ofClass: NSImage.self) {
+                    _ = p.loadObject(ofClass: NSImage.self) { img, _ in add((img as? NSImage).flatMap(Attachment.init(image:))) }
+                }
+            }
+            return true
+        }
         .onChange(of: focused) { m.inputFocused = focused }
     }
 
@@ -750,6 +789,32 @@ struct Conversation: View {
     }
 }
 
+struct AttachmentThumb: View {
+    let attachment: Attachment
+    let remove: () -> Void
+    @State private var hover = false
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            if let img = attachment.image {
+                Image(nsImage: img).resizable().scaledToFill()
+                    .frame(width: 52, height: 52)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.white.opacity(0.15)))
+            }
+            Button(action: remove) {
+                Image(systemName: "xmark.circle.fill").font(.system(size: 14))
+                    .foregroundStyle(.white, .black.opacity(0.75))
+            }
+            .buttonStyle(.plain)
+            .offset(x: 5, y: -5)
+            .opacity(hover ? 1 : 0.7)
+        }
+        .onHover { hover = $0 }
+        .help("Remove image")
+    }
+}
+
 struct Bubble: View {
     let msg: Message
     let tint: Color
@@ -764,11 +829,22 @@ struct Bubble: View {
         } else {
             HStack {
                 if msg.role == .user { Spacer(minLength: 40) }
-                Text(md)
-                    .font(.system(size: 12.5))
-                    .textSelection(.enabled)
-                    .padding(.horizontal, 10).padding(.vertical, 7)
-                    .background(RoundedRectangle(cornerRadius: 10).fill(msg.role == .user ? tint.opacity(0.35) : Color.white.opacity(0.07)))
+                VStack(alignment: msg.role == .user ? .trailing : .leading, spacing: 4) {
+                    ForEach(msg.images.indices, id: \.self) { i in
+                        if let img = NSImage(data: msg.images[i]) {
+                            Image(nsImage: img).resizable().scaledToFit()
+                                .frame(maxWidth: 220, maxHeight: 160)
+                                .clipShape(RoundedRectangle(cornerRadius: 9))
+                        }
+                    }
+                    if !msg.text.isEmpty {
+                        Text(md)
+                            .font(.system(size: 12.5))
+                            .textSelection(.enabled)
+                            .padding(.horizontal, 10).padding(.vertical, 7)
+                            .background(RoundedRectangle(cornerRadius: 10).fill(msg.role == .user ? tint.opacity(0.35) : Color.white.opacity(0.07)))
+                    }
+                }
                 if msg.role == .assistant { Spacer(minLength: 0) }
             }
         }
@@ -806,14 +882,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // A click that reaches another app is by definition outside the island.
         NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { _ in m.close() }
 
-        // Double-tap Option → open and start dictating. Global monitor needs Accessibility permission.
+        // Double-tap Option → open the panel from any app (then hold Space to talk). Global monitor needs Accessibility.
         var lastOption = Date.distantPast
         let onFlags: (NSEvent) -> Void = { [weak self] e in
             guard let m = self?.model, e.modifierFlags.intersection(.deviceIndependentFlagsMask) == .option else { return }
             if Date().timeIntervalSince(lastOption) < 0.35 {
                 lastOption = .distantPast
                 m.open()
-                if !m.recording { m.toggleMic(autoStop: .send) } // hands-free: ends and sends when you pause
             } else {
                 lastOption = Date()
             }
@@ -825,6 +900,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { e in
             guard m.expanded else { return e }
             let mods = e.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            // A menu-less background app has no Edit menu to route ⌘V & co.; send them to the text field directly.
+            if e.type == .keyDown, mods == .command || mods == [.command, .shift],
+               let action = editAction(e.charactersIgnoringModifiers?.lowercased() ?? "", shift: mods.contains(.shift)) {
+                if action == #selector(NSText.paste(_:)), m.pasteImages() { return nil }
+                NSApp.sendAction(action, to: nil, from: nil)
+                return nil
+            }
             if e.type == .keyDown, mods == .command, let n = Int(e.charactersIgnoringModifiers ?? ""),
                (1...m.agents.count + 1).contains(n) {
                 if n == 1 { m.showInbox() } else { m.select(m.agents[n - 2]) }
@@ -863,6 +945,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if !NSScreen.screens.contains(m.screen) { m.screen = NSScreen.main ?? NSScreen.screens[0] }
             m.place()
         }
+    }
+}
+
+func editAction(_ key: String, shift: Bool) -> Selector? {
+    switch (key, shift) {
+    case ("v", false): #selector(NSText.paste(_:))
+    case ("c", false): #selector(NSText.copy(_:))
+    case ("x", false): #selector(NSText.cut(_:))
+    case ("a", false): #selector(NSText.selectAll(_:))
+    case ("z", false): Selector(("undo:"))
+    case ("z", true): Selector(("redo:"))
+    default: nil
     }
 }
 

@@ -15,6 +15,7 @@ struct Report: Identifiable {
 struct RouteAsk: Identifiable {
     let id = UUID()
     let text: String
+    var images: [Attachment] = []
     let ranked: [(id: String, p: Double)]
 }
 
@@ -83,7 +84,7 @@ extension Model {
         case .route(let r):
             guard r.ranked.indices.contains(i) else { return }
             withAnimation(.spring(duration: 0.3)) { routeAsk = nil }
-            dispatch(r.text, to: r.ranked[i].id)
+            dispatch(r.text, to: r.ranked[i].id, images: r.images)
         case .ask(let a, let p):
             if p.isQuestion { a.answer(p, option: i) }
             else if i == 0 { a.respond(p, allow: true) }
@@ -104,28 +105,28 @@ extension Model {
     }
 
     /// Text typed (or spoken) in the Inbox: answers the selected card if it's a question, else gets routed.
-    func submitInInbox(_ text: String) {
-        if case .ask(let a, let p)? = currentCard {
+    func submitInInbox(_ text: String, images: [Attachment] = []) {
+        if images.isEmpty, case .ask(let a, let p)? = currentCard {
             if p.isQuestion { a.answer(p, text: text) } else { a.respond(p, allow: false, message: text) }
             return
         }
-        route(text)
+        route(text, images: images)
     }
 
-    func route(_ text: String) {
-        if agents.count == 1, let only = agents.first { return dispatch(text, to: only.id) }
+    func route(_ text: String, images: [Attachment] = []) {
+        if agents.count == 1, let only = agents.first { return dispatch(text, to: only.id, images: images) }
         guard let router else {
-            withAnimation(.spring(duration: 0.35)) { routeAsk = RouteAsk(text: text, ranked: agents.map { ($0.id, 0) }) }
+            withAnimation(.spring(duration: 0.35)) { routeAsk = RouteAsk(text: text, images: images, ranked: agents.map { ($0.id, 0) }) }
             return
         }
         flash(router.isReady ? "routing…" : "waking the router…")
         router.route(text, agents.map(\.cfg)) { [weak self] d in
             guard let self else { return }
             if let id = d.agent {
-                self.dispatch(text, to: id, p: d.ranked.first?.p)
+                self.dispatch(text, to: id, p: d.ranked.first?.p, images: images)
             } else {
                 withAnimation(.spring(duration: 0.35, bounce: 0.2)) {
-                    self.routeAsk = RouteAsk(text: text, ranked: d.ranked)
+                    self.routeAsk = RouteAsk(text: text, images: images, ranked: d.ranked)
                     self.cursor = 0
                     self.notice = nil
                 }
@@ -134,9 +135,9 @@ extension Model {
         }
     }
 
-    func dispatch(_ text: String, to id: String, p: Double? = nil) {
+    func dispatch(_ text: String, to id: String, p: Double? = nil, images: [Attachment] = []) {
         guard let a = agent(id) else { return }
-        a.send(text)
+        a.send(text, images: images)
         flash("→ \(a.cfg.name)" + (p.map { String(format: " · %.0f%%", $0 * 100) } ?? ""))
     }
 

@@ -20,7 +20,7 @@ one-key cards, so you never switch windows or babysit a terminal.
   that grows.
 - **An Inbox for everything that needs you.** Permission prompts, agent questions, finished work and failures arrive as
   cards. Press 1, 2 or 3 to answer.
-- **Talk to it.** Hold Space and speak, or double-tap ⌥ from any app.
+- **Talk to it.** Double-tap ⌥ from any app to open it, hold Space and speak.
 - **Routing without thinking about it.** Type in the Inbox and a small local decision model sends the message to the
   agent whose role fits, in tens of milliseconds and with no model kept in memory when idle. When it isn't sure, it
   asks you.
@@ -108,7 +108,8 @@ agents:
 | Inbox / agents | ⌘1 · ⌘2, ⌘3, … |
 | Answer a card | 1–9 · ↵ allows or opens · E clears · J/K moves · Tab switches between cards and the text field |
 | Address an agent | start with `@shop` or `shop,` |
-| Talk | hold Space (empty field), release to send · double-tap ⌥ from anywhere: hands-free, sends when you pause · 🎙 hands-free dictation into the field |
+| Open from anywhere | double-tap ⌥ |
+| Talk | hold Space (empty field), release to send · 🎙 hands-free dictation into the field, ends when you pause |
 | Stop a turn | ■ (its background subagents keep running) |
 | Compact / fresh session | click the context size (e.g. `42k`) · ✎ |
 
@@ -125,7 +126,7 @@ The dot on the closed island shows what's happening:
 
 ## Voice
 
-Hold Space (with the text field empty) and talk, or double-tap ⌥ and just talk: hands-free dictation ends by itself after about a second of silence, judged against the room's own noise level. Apple's recognizer shows the words live. If you set up
+Hold Space (with the text field empty) and talk; let go to send. Double-tap ⌥ in any app to open the panel first. The 🎙 button is hands-free: it stops by itself after about a second of silence, judged against the room's own noise level, and leaves the text for you to edit. Apple's recognizer shows the words live. If you set up
 local Whisper, its transcript replaces Apple's when you let go. Whisper is much better when you mix languages and say
 technical terms; *"Rust'ta tokio ne işe yarıyor"* stops coming out as *"Rasta Tokyo"*.
 

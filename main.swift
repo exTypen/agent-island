@@ -841,7 +841,7 @@ struct Bubble: View {
                         }
                     }
                     if !msg.text.isEmpty {
-                        Text(md)
+                        Group { if msg.role == .assistant { MarkdownView(text: msg.text) } else { Text(md) } }
                             .font(.system(size: 12.5))
                             .textSelection(.enabled)
                             .padding(.horizontal, 10).padding(.vertical, 7)

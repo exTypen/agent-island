@@ -24,7 +24,11 @@ xcrun actool "$PWD/AppIcon.icon" --compile "$PWD/$APP/Contents/Resources" --app-
     || echo "note: actool couldn't compile AppIcon.icon (needs Xcode 26); using AppIcon.icns"
 swiftc -O -swift-version 5 -target "$(uname -m)-apple-macos14.0" -o "$APP/Contents/MacOS/AgentIsland" *.swift
 SIGN_ID=${SIGN_ID:-$(security find-identity -v -p codesigning 2>/dev/null | awk -F'"' '/Apple Development/ { print $2; exit }')}
-codesign --force --sign "${SIGN_ID:--}" "$APP" 2>/dev/null || codesign --force --sign - "$APP"
+case "$SIGN_ID" in
+# Notarization requires the hardened runtime and a secure timestamp.
+"Developer ID Application"*) codesign --force --options runtime --timestamp --entitlements AgentIsland.entitlements --sign "$SIGN_ID" "$APP" ;;
+*) codesign --force --sign "${SIGN_ID:--}" "$APP" 2>/dev/null || codesign --force --sign - "$APP" ;;
+esac
 echo "built $APP"
 
 case "$1" in

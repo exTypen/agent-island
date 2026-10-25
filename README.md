@@ -32,10 +32,15 @@ one-key cards, so you never switch windows or babysit a terminal.
 - macOS 14 or later.
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code), installed and signed in. Check that `claude -p "hi"`
   works in your terminal.
-- Xcode Command Line Tools (`xcode-select --install`) to build.
+- Xcode Command Line Tools (`xcode-select --install`), only to build from source.
 - Optional, for the router: Apple Silicon, `git` and [`uv`](https://docs.astral.sh/uv/).
 
 ## Install
+
+Download `AgentIsland-<version>.dmg` from [Releases](https://github.com/exTypen/agent-island/releases), open it and
+drag Agent Island to Applications. The DMG is signed and notarized.
+
+Or build from source:
 
 ```bash
 git clone https://github.com/exTypen/agent-island
@@ -44,7 +49,7 @@ cd agent-island
 ```
 
 Open it later from Spotlight or Launchpad like any app. While hacking on it, `./build.sh run` builds and launches from
-`build/` without installing.
+`build/` without installing. `./release.sh` builds the signed, notarized DMG.
 
 The island appears on the right edge of the screen; drag it to any other edge. There is no Dock icon. Right-click the
 island for the menu: edit agents, reload, enable the ⌥⌥ shortcut, quit.
